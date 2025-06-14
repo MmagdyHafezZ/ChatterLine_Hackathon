@@ -1,1030 +1,710 @@
 import React, { useState, useCallback } from "react";
-import { View, StyleSheet, ScrollView, Alert } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Dimensions,
+} from "react-native";
 import {
   Text,
-  FAB,
-  Portal,
-  Modal,
   useTheme,
-  IconButton,
   Card,
   Button,
-  TextInput,
-  Chip,
-  RadioButton,
-  Switch,
+  Portal,
+  Modal,
+  IconButton,
   Divider,
 } from "react-native-paper";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  useAnimatedScrollHandler,
-  withSpring,
-  interpolate,
-} from "react-native-reanimated";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { Calendar } from "react-native-calendars";
 import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
 
-import { useCallStore } from "../store/callStore";
+dayjs.extend(relativeTime);
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  interpolate,
+} from "react-native-reanimated";
+
+import { useCallStore, CallFormData } from "../store/callStore";
 import { useUserStore } from "../store/userStore";
-import { CallEvent } from "../types";
-import AnimatedButton from "../components/common/AnimatedButton";
+import { VoicePersona, UserProfile } from "../types";
 
-const SchedulerScreen: React.FC = () => {
+// Enhanced Form Components
+import { CallDetailsForm } from "../components/Scheduler/CallDetailsForm";
+import { CustomDateTimePicker } from "../components/Scheduler/DateTimePicker";
+import { VoicePersonaSelector } from "../components/Scheduler/VoicePersonaSelector";
+import { ProfileDataSelector } from "../components/Scheduler/ProfileDataSelector";
+import { ConditionalProfileForm } from "../components/Scheduler/ConditionalProfileForm";
+
+export interface FormErrors {
+  title?: string;
+  scheduledDate?: string;
+  voicePersona?: string;
+  selectedProfileFields?: string;
+  additionalData?: {
+    name?: string;
+    phone?: string;
+    company?: string;
+    jobTitle?: string;
+  };
+}
+
+interface SchedulerScreenProps {
+  onClose?: () => void;
+}
+
+const { width } = Dimensions.get("window");
+
+const SchedulerScreen: React.FC<SchedulerScreenProps> = ({ onClose }) => {
   const theme = useTheme();
-  const { events, addEvent, updateEvent, deleteEvent, getUpcomingEvents } =
-    useCallStore();
+  const { addEventFromForm } = useCallStore();
   const { profile } = useUserStore();
 
-  // UI State
-  const [selectedDate, setSelectedDate] = useState(
-    dayjs().format("YYYY-MM-DD")
-  );
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [currentView, setCurrentView] = useState<"calendar" | "list">(
-    "calendar"
-  );
-  const [modalStep, setModalStep] = useState<
-    "task" | "recipient" | "schedule" | "review"
-  >("task");
+  // Multi-step form state
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Form State
-  const [formData, setFormData] = useState({
-    // Task Details
-    taskTitle: "",
-    taskDescription: "",
-    taskType: "appointment", // appointment, inquiry, booking, complaint, other
-    priority: "medium", // low, medium, high
-
-    // Recipient Details
-    recipientName: "",
-    recipientPhone: "",
-    recipientCompany: "",
-
-    // Call Settings
-    callTime: "09:00",
-    duration: 30,
-    maxRetries: 2,
-    followUpRequired: true,
-
-    // User Context (what AI can share about user)
-    sharePersonalInfo: true,
-    shareContactInfo: true,
-    shareCompanyInfo: true,
-    customInstructions: "",
+  // Form state
+  const [formData, setFormData] = useState<CallFormData>({
+    title: "",
+    description: "",
+    scheduledDate: new Date(),
+    voicePersona: "friendly",
+    selectedProfileFields: [],
+    additionalData: {},
   });
 
-  // Animation
-  const scrollY = useSharedValue(0);
-  const fabScale = useSharedValue(1);
+  const [errors, setErrors] = useState<FormErrors>({});
 
-  const resetForm = () => {
-    setFormData({
-      taskTitle: "",
-      taskDescription: "",
-      taskType: "appointment",
-      priority: "medium",
-      recipientName: "",
-      recipientPhone: "",
-      recipientCompany: "",
-      callTime: "09:00",
-      duration: 30,
-      maxRetries: 2,
-      followUpRequired: true,
-      sharePersonalInfo: true,
-      shareContactInfo: true,
-      shareCompanyInfo: true,
-      customInstructions: "",
-    });
-    setModalStep("task");
+  // Animation values
+  const slideAnimation = useSharedValue(0);
+  const progressAnimation = useSharedValue(0);
+
+  // Dummy profile with realistic missing data scenarios
+  const dummyProfile: UserProfile = {
+    id: "demo-user",
+    name: profile?.name || "Sarah Chen",
+    email: profile?.email || "sarah.chen@example.com",
+    phone: profile?.phone || "",
+    company: profile?.company || "",
+    jobTitle: profile?.jobTitle || "Product Designer",
+    location: profile?.location || "Seattle, WA",
+    bio: profile?.bio || "",
+    voicePersona: profile?.voicePersona || "friendly",
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
-  const handleDateSelect = useCallback((day: any) => {
-    setSelectedDate(day.dateString);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const currentProfile = profile || dummyProfile;
+
+  // Steps configuration
+  const steps = [
+    {
+      title: "Call Details",
+      subtitle: "What's this call about?",
+      icon: "💬",
+      component: "details",
+    },
+    {
+      title: "Schedule",
+      subtitle: "When should it happen?",
+      icon: "📅",
+      component: "datetime",
+    },
+    {
+      title: "AI Personality",
+      subtitle: "How should your AI sound?",
+      icon: "🎭",
+      component: "persona",
+    },
+    {
+      title: "Profile Info",
+      subtitle: "What should the AI know?",
+      icon: "👤",
+      component: "profile",
+    },
+    {
+      title: "Review",
+      subtitle: "Confirm your settings",
+      icon: "✨",
+      component: "review",
+    },
+  ];
+
+  const totalSteps = steps.length;
+
+  // Validation per step
+  const validateStep = useCallback(
+    (step: number): boolean => {
+      const newErrors: FormErrors = {};
+
+      switch (step) {
+        case 0:
+          if (!formData.title.trim()) {
+            newErrors.title = "Please enter a call title";
+          } else if (formData.title.length < 3) {
+            newErrors.title = "Title must be at least 3 characters";
+          }
+          break;
+
+        case 1:
+          const now = new Date();
+          if (formData.scheduledDate <= now) {
+            newErrors.scheduledDate = "Cannot schedule calls in the past";
+          }
+          break;
+
+        case 2:
+          if (!formData.voicePersona) {
+            newErrors.voicePersona = "Please select an AI personality";
+          }
+          break;
+
+        case 3:
+          if (formData.selectedProfileFields.length === 0) {
+            newErrors.selectedProfileFields =
+              "Select at least one profile field";
+          }
+
+          const additionalDataErrors: FormErrors["additionalData"] = {};
+          const missingFields = getMissingProfileFields();
+
+          missingFields.forEach((field) => {
+            if (field === "name" && !formData.additionalData.name?.trim()) {
+              additionalDataErrors.name = "Name is required";
+            }
+            if (field === "phone" && !formData.additionalData.phone?.trim()) {
+              additionalDataErrors.phone = "Phone number is required";
+            }
+            if (
+              field === "company" &&
+              !formData.additionalData.company?.trim()
+            ) {
+              additionalDataErrors.company = "Company is required";
+            }
+            if (
+              field === "jobTitle" &&
+              !formData.additionalData.jobTitle?.trim()
+            ) {
+              additionalDataErrors.jobTitle = "Job title is required";
+            }
+          });
+
+          if (Object.keys(additionalDataErrors).length > 0) {
+            newErrors.additionalData = additionalDataErrors;
+          }
+          break;
+      }
+
+      setErrors(newErrors);
+      return Object.keys(newErrors).length === 0;
+    },
+    [formData]
+  );
+
+  // Navigation
+  const goToStep = useCallback(
+    (step: number) => {
+      if (step >= 0 && step < totalSteps) {
+        slideAnimation.value = withSpring(step);
+        progressAnimation.value = withTiming(step / (totalSteps - 1));
+        setCurrentStep(step);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    },
+    [slideAnimation, progressAnimation, totalSteps]
+  );
+
+  const nextStep = useCallback(() => {
+    if (validateStep(currentStep)) {
+      goToStep(currentStep + 1);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [currentStep, validateStep, goToStep]);
+
+  const prevStep = useCallback(() => {
+    goToStep(currentStep - 1);
+  }, [currentStep, goToStep]);
+
+  // Form handlers
+  const updateFormData = useCallback((updates: Partial<CallFormData>) => {
+    setFormData((prev) => ({ ...prev, ...updates }));
+    setErrors({});
   }, []);
 
-  const handleNextStep = () => {
-    const steps = ["task", "recipient", "schedule", "review"] as const;
-    const currentIndex = steps.indexOf(modalStep);
-    if (currentIndex < steps.length - 1) {
-      setModalStep(steps[currentIndex + 1]);
-    }
-  };
-
-  const handlePrevStep = () => {
-    const steps = ["task", "recipient", "schedule", "review"] as const;
-    const currentIndex = steps.indexOf(modalStep);
-    if (currentIndex > 0) {
-      setModalStep(steps[currentIndex - 1]);
-    }
-  };
-
-  const validateCurrentStep = () => {
-    switch (modalStep) {
-      case "task":
-        return formData.taskTitle.trim() && formData.taskDescription.trim();
-      case "recipient":
-        // Validate phone number has at least 10 digits
-        const phoneDigits = formData.recipientPhone.replace(/\D/g, "");
-        return formData.recipientName.trim() && phoneDigits.length >= 10;
-      case "schedule":
-        return true; // Always valid with defaults
-      case "review":
-        return true;
-      default:
-        return false;
-    }
-  };
-
-  const handleScheduleAICall = useCallback(async () => {
-    if (!profile) {
-      Alert.alert(
-        "Profile Required",
-        "Please complete your profile first to schedule AI calls"
-      );
-      return;
-    }
-
-    // Validate phone number
-    const phoneDigits = formData.recipientPhone.replace(/\D/g, "");
-    if (phoneDigits.length < 10) {
-      Alert.alert(
-        "Invalid Phone Number",
-        "Please enter a valid 10-digit phone number"
-      );
-      return;
-    }
-
-    // Create proper date object
-    const [hours, minutes] = formData.callTime.split(":").map(Number);
-    const callDate = dayjs(selectedDate)
-      .hour(hours)
-      .minute(minutes)
-      .second(0)
-      .toDate();
-
-    const newEvent: CallEvent = {
-      id: `ai_call_${Date.now()}`,
-      title: `AI Call: ${formData.taskTitle}`,
-      description: formData.taskDescription,
-      scheduledTime: callDate,
-      duration: formData.duration,
-      status: "scheduled",
-
-      // AI-specific fields
-      taskType: formData.taskType,
-      priority: formData.priority,
-      recipient: {
-        name: formData.recipientName,
-        phone: formData.recipientPhone,
-        company: formData.recipientCompany,
-      },
-      aiInstructions: {
-        maxRetries: formData.maxRetries,
-        followUpRequired: formData.followUpRequired,
-        sharePersonalInfo: formData.sharePersonalInfo,
-        shareContactInfo: formData.shareContactInfo,
-        shareCompanyInfo: formData.shareCompanyInfo,
-        customInstructions: formData.customInstructions,
-      },
-      userContext: {
-        name: profile.name,
-        email: formData.shareContactInfo ? profile.email : undefined,
-        phone: formData.shareContactInfo ? profile.phone : undefined,
-        company: formData.shareCompanyInfo ? profile.company : undefined,
-        jobTitle: formData.shareCompanyInfo ? profile.jobTitle : undefined,
-      },
-
-      participants: [formData.recipientName],
-      reminders: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    addEvent(newEvent);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    setIsModalVisible(false);
-    resetForm();
-
-    Alert.alert(
-      "AI Call Scheduled!",
-      `Your AI assistant will call ${formData.recipientPhone} (${formData.recipientName}) on ${dayjs(callDate).format("MMM D, YYYY at h:mm A")} to handle: ${formData.taskTitle}`
-    );
-  }, [formData, selectedDate, addEvent, profile]);
-
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
-      fabScale.value =
-        event.contentOffset.y > 100 ? withSpring(0.85) : withSpring(1);
+  const updateAdditionalData = useCallback(
+    (field: keyof CallFormData["additionalData"], value: string) => {
+      setFormData((prev) => ({
+        ...prev,
+        additionalData: { ...prev.additionalData, [field]: value },
+      }));
+      setErrors((prev) => ({
+        ...prev,
+        additionalData: prev.additionalData
+          ? { ...prev.additionalData, [field]: undefined }
+          : undefined,
+      }));
     },
-  });
+    []
+  );
 
-  const fabStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: fabScale.value }],
+  const getMissingProfileFields = useCallback((): (keyof UserProfile)[] => {
+    return formData.selectedProfileFields.filter((field) => {
+      const value = currentProfile[field];
+      return !value || (typeof value === "string" && !value.trim());
+    });
+  }, [formData.selectedProfileFields, currentProfile]);
+
+  // Close handler
+  const handleClose = useCallback(() => {
+    if (onClose) {
+      onClose();
+    }
+  }, [onClose]);
+
+  // Submit
+  const handleSubmit = useCallback(async () => {
+    if (!validateStep(currentStep)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const newEvent = addEventFromForm(formData);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowSuccessModal(true);
+
+      // Reset form
+      setFormData({
+        title: "",
+        description: "",
+        scheduledDate: new Date(),
+        voicePersona: "friendly",
+        selectedProfileFields: [],
+        additionalData: {},
+      });
+      setCurrentStep(0);
+      slideAnimation.value = withSpring(0);
+      progressAnimation.value = withTiming(0);
+      setErrors({});
+    } catch (error) {
+      Alert.alert("Error", "Failed to schedule call. Please try again.");
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    formData,
+    currentStep,
+    validateStep,
+    addEventFromForm,
+    slideAnimation,
+    progressAnimation,
+  ]);
+
+  const handleSuccessModalClose = useCallback(() => {
+    setShowSuccessModal(false);
+    handleClose();
+  }, [handleClose]);
+
+  // Animated styles
+  const slideStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX: interpolate(
+          slideAnimation.value,
+          [0, totalSteps - 1],
+          [0, -(totalSteps - 1) * width]
+        ),
+      },
+    ],
   }));
 
-  // Get events for selected date
-  const getEventsForDate = (date: string) => {
-    return events.filter(
-      (event) => dayjs(event.scheduledTime).format("YYYY-MM-DD") === date
-    );
-  };
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progressAnimation.value * 100}%`,
+  }));
 
-  // Get marked dates for calendar
-  const getMarkedDates = () => {
-    const marked: any = {};
+  const styles = createStyles(theme);
 
-    events.forEach((event) => {
-      const dateKey = dayjs(event.scheduledTime).format("YYYY-MM-DD");
-      const color =
-        event.status === "completed"
-          ? theme.colors.tertiary
-          : event.status === "failed"
-            ? theme.colors.error
-            : theme.colors.primary;
-      marked[dateKey] = {
-        marked: true,
-        dotColor: color,
-      };
-    });
-
-    marked[selectedDate] = {
-      ...marked[selectedDate],
-      selected: true,
-      selectedColor: theme.colors.primary,
-    };
-
-    return marked;
-  };
-
-  const taskTypes = [
-    { value: "appointment", label: "Schedule Appointment", icon: "📅" },
-    { value: "inquiry", label: "Make Inquiry", icon: "❓" },
-    { value: "booking", label: "Make Booking", icon: "🎫" },
-    { value: "complaint", label: "File Complaint", icon: "⚠️" },
-    { value: "follow_up", label: "Follow Up", icon: "📞" },
-    { value: "other", label: "Other Task", icon: "💼" },
-  ];
-
-  const timeSlots = [
-    "09:00",
-    "09:30",
-    "10:00",
-    "10:30",
-    "11:00",
-    "11:30",
-    "12:00",
-    "12:30",
-    "13:00",
-    "13:30",
-    "14:00",
-    "14:30",
-    "15:00",
-    "15:30",
-    "16:00",
-    "16:30",
-    "17:00",
-    "17:30",
-  ];
-
-  const renderModalContent = () => {
-    switch (modalStep) {
-      case "task":
+  // Render step content
+  const renderStepContent = (step: number) => {
+    switch (step) {
+      case 0:
         return (
-          <View style={styles.stepContent}>
-            <Text variant="headlineSmall" style={styles.stepTitle}>
-              What task should AI handle?
-            </Text>
-            <Text variant="bodyMedium" style={styles.stepSubtitle}>
-              Describe what you want the AI to accomplish during the call
-            </Text>
-
-            <TextInput
-              label="Task Title *"
-              value={formData.taskTitle}
-              onChangeText={(text) =>
-                setFormData((prev) => ({ ...prev, taskTitle: text }))
-              }
-              mode="outlined"
-              style={styles.input}
-              placeholder="e.g., Schedule doctor appointment"
-            />
-
-            <TextInput
-              label="Detailed Description *"
-              value={formData.taskDescription}
-              onChangeText={(text) =>
-                setFormData((prev) => ({ ...prev, taskDescription: text }))
-              }
-              mode="outlined"
-              multiline
-              numberOfLines={4}
-              style={styles.input}
-              placeholder="e.g., Call Dr. Smith's office to schedule a routine checkup for next week, preferably Tuesday or Wednesday morning"
-            />
-
-            <Text variant="bodyLarge" style={styles.sectionLabel}>
-              Task Type
-            </Text>
-            <View style={styles.taskTypeGrid}>
-              {taskTypes.map((type) => (
-                <Chip
-                  key={type.value}
-                  selected={formData.taskType === type.value}
-                  onPress={() =>
-                    setFormData((prev) => ({ ...prev, taskType: type.value }))
-                  }
-                  style={styles.taskTypeChip}
-                  icon={() => <Text>{type.icon}</Text>}
-                >
-                  {type.label}
-                </Chip>
-              ))}
-            </View>
-
-            <Text variant="bodyLarge" style={styles.sectionLabel}>
-              Priority Level
-            </Text>
-            <RadioButton.Group
-              onValueChange={(value) =>
-                setFormData((prev) => ({ ...prev, priority: value }))
-              }
-              value={formData.priority}
-            >
-              {[
-                {
-                  value: "low",
-                  label: "Low - Can wait",
-                  color: theme.colors.tertiary,
-                },
-                {
-                  value: "medium",
-                  label: "Medium - Normal urgency",
-                  color: theme.colors.primary,
-                },
-                {
-                  value: "high",
-                  label: "High - Urgent",
-                  color: theme.colors.error,
-                },
-              ].map((priority) => (
-                <View key={priority.value} style={styles.radioOption}>
-                  <RadioButton value={priority.value} />
-                  <Text style={[styles.radioLabel, { color: priority.color }]}>
-                    {priority.label}
-                  </Text>
-                </View>
-              ))}
-            </RadioButton.Group>
-          </View>
+          <CallDetailsForm
+            title={formData.title}
+            description={formData.description}
+            onTitleChange={(title) => updateFormData({ title })}
+            onDescriptionChange={(description) =>
+              updateFormData({ description })
+            }
+            titleError={errors.title}
+          />
         );
-
-      case "recipient":
+      case 1:
         return (
-          <View style={styles.stepContent}>
-            <Text variant="headlineSmall" style={styles.stepTitle}>
-              Who should AI call?
-            </Text>
-            <Text variant="bodyMedium" style={styles.stepSubtitle}>
-              Enter the phone number and contact details
-            </Text>
-
-            <View style={styles.phoneNumberSection}>
-              <Text variant="titleMedium" style={styles.phoneNumberLabel}>
-                📞 Phone Number to Call
-              </Text>
-              <TextInput
-                label="Phone Number *"
-                value={formData.recipientPhone}
-                onChangeText={(text) => {
-                  // Auto-format phone number as user types
-                  const cleaned = text.replace(/\D/g, "");
-                  let formatted = cleaned;
-
-                  if (cleaned.length >= 6) {
-                    formatted = `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6, 10)}`;
-                  } else if (cleaned.length >= 3) {
-                    formatted = `(${cleaned.slice(0, 3)}) ${cleaned.slice(3)}`;
-                  }
-
-                  setFormData((prev) => ({
-                    ...prev,
-                    recipientPhone: formatted,
-                  }));
-                }}
-                mode="outlined"
-                keyboardType="phone-pad"
-                style={[styles.input, styles.phoneNumberInput]}
-                placeholder="(555) 123-4567"
-                left={<TextInput.Icon icon="phone" />}
-                maxLength={14}
-              />
-              <Text variant="bodySmall" style={styles.phoneHint}>
-                Enter the complete phone number including area code
-              </Text>
-            </View>
-
-            <TextInput
-              label="Contact Name *"
-              value={formData.recipientName}
-              onChangeText={(text) =>
-                setFormData((prev) => ({ ...prev, recipientName: text }))
-              }
-              mode="outlined"
-              style={styles.input}
-              placeholder="e.g., Dr. Smith, ABC Company, John Doe"
-              left={<TextInput.Icon icon="account" />}
-            />
-
-            <TextInput
-              label="Company/Organization (Optional)"
-              value={formData.recipientCompany}
-              onChangeText={(text) =>
-                setFormData((prev) => ({ ...prev, recipientCompany: text }))
-              }
-              mode="outlined"
-              style={styles.input}
-              placeholder="e.g., Smith Medical Center, ABC Corp"
-              left={<TextInput.Icon icon="domain" />}
-            />
-
-            <View style={styles.quickContactsSection}>
-              <Text variant="bodyMedium" style={styles.quickContactsTitle}>
-                💡 Quick tip: Save frequently called numbers in your profile for
-                faster scheduling
-              </Text>
-            </View>
-          </View>
+          <CustomDateTimePicker
+            selectedDate={formData.scheduledDate}
+            onDateChange={(scheduledDate) => updateFormData({ scheduledDate })}
+            error={errors.scheduledDate}
+          />
         );
-
-      case "schedule":
+      case 2:
         return (
-          <View style={styles.stepContent}>
-            <Text variant="headlineSmall" style={styles.stepTitle}>
-              When should AI make the call?
-            </Text>
-            <Text variant="bodyMedium" style={styles.stepSubtitle}>
-              Choose the date and time for the AI call
-            </Text>
-
-            <Text variant="bodyLarge" style={styles.selectedDateText}>
-              📅 {dayjs(selectedDate).format("dddd, MMMM D, YYYY")}
-            </Text>
-
-            <Text variant="bodyLarge" style={styles.sectionLabel}>
-              Call Time
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.timeSlotsContainer}
-            >
-              {timeSlots.map((time) => (
-                <Chip
-                  key={time}
-                  selected={formData.callTime === time}
-                  onPress={() =>
-                    setFormData((prev) => ({ ...prev, callTime: time }))
-                  }
-                  style={styles.timeSlot}
-                >
-                  {time}
-                </Chip>
-              ))}
-            </ScrollView>
-
-            <Text variant="bodyLarge" style={styles.sectionLabel}>
-              Expected Duration
-            </Text>
-            <View style={styles.durationOptions}>
-              {[15, 30, 45, 60].map((duration) => (
-                <Chip
-                  key={duration}
-                  selected={formData.duration === duration}
-                  onPress={() => setFormData((prev) => ({ ...prev, duration }))}
-                  style={styles.durationChip}
-                >
-                  {duration} min
-                </Chip>
-              ))}
-            </View>
-
-            <Text variant="bodyLarge" style={styles.sectionLabel}>
-              Call Settings
-            </Text>
-            <View style={styles.callSettings}>
-              <View style={styles.settingRow}>
-                <Text variant="bodyMedium">Maximum retry attempts</Text>
-                <View style={styles.retryOptions}>
-                  {[1, 2, 3].map((retries) => (
-                    <Chip
-                      key={retries}
-                      selected={formData.maxRetries === retries}
-                      onPress={() =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          maxRetries: retries,
-                        }))
-                      }
-                      style={styles.retryChip}
-                    >
-                      {retries}
-                    </Chip>
-                  ))}
-                </View>
-              </View>
-
-              <View style={styles.settingRow}>
-                <Text variant="bodyMedium">Follow-up if unsuccessful</Text>
-                <Switch
-                  value={formData.followUpRequired}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      followUpRequired: value,
-                    }))
-                  }
+          <VoicePersonaSelector
+            selectedPersona={formData.voicePersona}
+            onPersonaChange={(voicePersona) => updateFormData({ voicePersona })}
+            error={errors.voicePersona}
+          />
+        );
+      case 3:
+        return (
+          <View>
+            <ProfileDataSelector
+              selectedFields={formData.selectedProfileFields}
+              onFieldsChange={(selectedProfileFields) =>
+                updateFormData({ selectedProfileFields })
+              }
+              profile={currentProfile}
+              error={errors.selectedProfileFields}
+            />
+            {getMissingProfileFields().length > 0 && (
+              <View style={styles.conditionalSection}>
+                <ConditionalProfileForm
+                  missingFields={getMissingProfileFields()}
+                  additionalData={formData.additionalData}
+                  onDataChange={updateAdditionalData}
+                  errors={errors.additionalData}
                 />
               </View>
-            </View>
+            )}
           </View>
         );
-
-      case "review":
+      case 4:
         return (
-          <View style={styles.stepContent}>
-            <Text variant="headlineSmall" style={styles.stepTitle}>
-              Review & Privacy Settings
-            </Text>
-            <Text variant="bodyMedium" style={styles.stepSubtitle}>
-              What information can AI share about you if asked?
-            </Text>
-
-            <Card style={styles.reviewCard}>
-              <Text variant="titleMedium" style={styles.reviewSectionTitle}>
-                📋 Call Summary
-              </Text>
-              <Text variant="bodyMedium" style={styles.reviewText}>
-                <Text style={styles.reviewLabel}>Task:</Text>{" "}
-                {formData.taskTitle}
-              </Text>
-              <Text variant="bodyMedium" style={styles.reviewText}>
-                <Text style={styles.reviewLabel}>Phone:</Text>{" "}
-                {formData.recipientPhone}
-              </Text>
-              <Text variant="bodyMedium" style={styles.reviewText}>
-                <Text style={styles.reviewLabel}>Contact:</Text>{" "}
-                {formData.recipientName}
-              </Text>
-              <Text variant="bodyMedium" style={styles.reviewText}>
-                <Text style={styles.reviewLabel}>When:</Text>{" "}
-                {dayjs(selectedDate).format("MMM D")} at {formData.callTime}
-              </Text>
-              <Text variant="bodyMedium" style={styles.reviewText}>
-                <Text style={styles.reviewLabel}>Priority:</Text>{" "}
-                {formData.priority}
-              </Text>
-            </Card>
-
-            <Text variant="titleMedium" style={styles.privacyTitle}>
-              🔒 Privacy Settings
-            </Text>
-            <Text variant="bodySmall" style={styles.privacySubtitle}>
-              Choose what personal information AI can share if the recipient
-              asks
-            </Text>
-
-            <View style={styles.privacySettings}>
-              <View style={styles.privacyRow}>
-                <View style={styles.privacyInfo}>
-                  <Text variant="bodyMedium">Share personal details</Text>
-                  <Text variant="bodySmall" style={styles.privacyDetail}>
-                    Name, basic information
-                  </Text>
-                </View>
-                <Switch
-                  value={formData.sharePersonalInfo}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      sharePersonalInfo: value,
-                    }))
-                  }
-                />
-              </View>
-
-              <View style={styles.privacyRow}>
-                <View style={styles.privacyInfo}>
-                  <Text variant="bodyMedium">Share contact information</Text>
-                  <Text variant="bodySmall" style={styles.privacyDetail}>
-                    Email, phone number
-                  </Text>
-                </View>
-                <Switch
-                  value={formData.shareContactInfo}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      shareContactInfo: value,
-                    }))
-                  }
-                />
-              </View>
-
-              <View style={styles.privacyRow}>
-                <View style={styles.privacyInfo}>
-                  <Text variant="bodyMedium">Share company information</Text>
-                  <Text variant="bodySmall" style={styles.privacyDetail}>
-                    Company name, job title
-                  </Text>
-                </View>
-                <Switch
-                  value={formData.shareCompanyInfo}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      shareCompanyInfo: value,
-                    }))
-                  }
-                />
-              </View>
-            </View>
-
-            <TextInput
-              label="Special Instructions for AI (Optional)"
-              value={formData.customInstructions}
-              onChangeText={(text) =>
-                setFormData((prev) => ({ ...prev, customInstructions: text }))
-              }
-              mode="outlined"
-              multiline
-              numberOfLines={3}
-              style={styles.input}
-              placeholder="e.g., Be polite, mention I'm a regular customer, ask for Dr. Smith specifically..."
-            />
-          </View>
+          <ReviewStep
+            formData={formData}
+            profile={currentProfile}
+            missingFields={getMissingProfileFields()}
+          />
         );
-
       default:
         return null;
     }
   };
-
-  const getStepProgress = () => {
-    const steps = ["task", "recipient", "schedule", "review"];
-    return ((steps.indexOf(modalStep) + 1) / steps.length) * 100;
-  };
-
-  const styles = createStyles(theme);
 
   return (
     <View style={styles.container}>
       <StatusBar style="auto" />
 
       <LinearGradient
-        colors={[theme.colors.background, theme.colors.surface]}
+        colors={[theme.colors.primary + "10", theme.colors.background]}
         style={StyleSheet.absoluteFillObject}
       />
 
-      {/* Header */}
+      {/* Header with close button */}
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerTop}>
+          <IconButton
+            icon="close"
+            size={24}
+            onPress={handleClose}
+            style={styles.closeButton}
+          />
           <Text variant="headlineMedium" style={styles.headerTitle}>
-            🤖 AI Assistant
+            Schedule AI Call
           </Text>
-          <Text variant="bodyMedium" style={styles.headerSubtitle}>
-            Schedule calls for your AI to handle
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <Text variant="bodyMedium" style={styles.headerSubtitle}>
+          {steps[currentStep].subtitle}
+        </Text>
+
+        {/* Progress */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBackground}>
+            <Animated.View style={[styles.progressFill, progressStyle]} />
+          </View>
+          <Text variant="bodySmall" style={styles.progressText}>
+            Step {currentStep + 1} of {totalSteps}
           </Text>
         </View>
-        <IconButton
-          icon={currentView === "calendar" ? "view-list" : "calendar"}
-          onPress={() =>
-            setCurrentView(currentView === "calendar" ? "list" : "calendar")
-          }
-          iconColor={theme.colors.primary}
-        />
       </View>
 
-      <Animated.ScrollView
-        style={styles.scrollView}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-      >
-        {currentView === "calendar" ? (
-          <>
-            {/* Calendar */}
-            <Card style={styles.calendarCard}>
-              <Calendar
-                current={selectedDate}
-                onDayPress={handleDateSelect}
-                markedDates={getMarkedDates()}
-                theme={{
-                  backgroundColor: "transparent",
-                  calendarBackground: "transparent",
-                  textSectionTitleColor: theme.colors.onSurface,
-                  selectedDayBackgroundColor: theme.colors.primary,
-                  selectedDayTextColor: theme.colors.onPrimary,
-                  todayTextColor: theme.colors.primary,
-                  dayTextColor: theme.colors.onSurface,
-                  textDisabledColor: theme.colors.onSurfaceVariant,
-                  dotColor: theme.colors.primary,
-                  selectedDotColor: theme.colors.onPrimary,
-                  arrowColor: theme.colors.primary,
-                  monthTextColor: theme.colors.onSurface,
-                  textDayFontSize: 16,
-                  textMonthFontSize: 18,
-                  textDayHeaderFontSize: 13,
-                }}
-              />
-            </Card>
-
-            {/* AI Calls for Selected Date */}
-            <Card style={styles.eventsCard}>
-              <Text variant="titleLarge" style={styles.eventsTitle}>
-                🤖 AI Calls - {dayjs(selectedDate).format("MMM D")}
+      {/* Step Indicators */}
+      <View style={styles.stepIndicators}>
+        {steps.map((step, index) => (
+          <View key={index} style={styles.stepIndicator}>
+            <View
+              style={[
+                styles.stepCircle,
+                index === currentStep && styles.stepCircleActive,
+                index < currentStep && styles.stepCircleCompleted,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.stepIcon,
+                  index === currentStep && styles.stepIconActive,
+                  index < currentStep && styles.stepIconCompleted,
+                ]}
+              >
+                {index < currentStep ? "✓" : step.icon}
               </Text>
-
-              {getEventsForDate(selectedDate).length === 0 ? (
-                <View style={styles.noEventsContainer}>
-                  <Text variant="bodyLarge" style={styles.noEventsText}>
-                    No AI calls scheduled for this day
-                  </Text>
-                  <Button
-                    mode="contained"
-                    onPress={() => setIsModalVisible(true)}
-                    style={styles.scheduleButton}
-                    icon="robot"
-                  >
-                    Schedule AI Call
-                  </Button>
-                </View>
-              ) : (
-                <View style={styles.eventsList}>
-                  {getEventsForDate(selectedDate).map((event) => (
-                    <Card key={event.id} style={styles.eventCard}>
-                      <View style={styles.eventContent}>
-                        <View style={styles.eventStatus}>
-                          <Text
-                            variant="bodyLarge"
-                            style={styles.eventTimeText}
-                          >
-                            {dayjs(event.scheduledTime).format("h:mm A")}
-                          </Text>
-                          <Chip
-                            icon={
-                              event.status === "completed"
-                                ? "check"
-                                : event.status === "failed"
-                                  ? "close"
-                                  : event.status === "in_progress"
-                                    ? "phone"
-                                    : "clock"
-                            }
-                            style={[
-                              styles.statusChip,
-                              {
-                                backgroundColor:
-                                  event.status === "completed"
-                                    ? theme.colors.tertiary
-                                    : event.status === "failed"
-                                      ? theme.colors.errorContainer
-                                      : event.status === "in_progress"
-                                        ? theme.colors.secondaryContainer
-                                        : theme.colors.primaryContainer,
-                              },
-                            ]}
-                            textStyle={styles.statusChipText}
-                          >
-                            {event.status}
-                          </Chip>
-                        </View>
-
-                        <View style={styles.eventDetails}>
-                          <Text variant="titleMedium" style={styles.eventTitle}>
-                            {event.title}
-                          </Text>
-                          <Text
-                            variant="bodyMedium"
-                            style={styles.eventRecipient}
-                          >
-                            📞 {event.recipient?.phone || "No phone"} •{" "}
-                            {event.recipient?.name || "Unknown"}
-                          </Text>
-                          {event.description && (
-                            <Text
-                              variant="bodySmall"
-                              style={styles.eventDescription}
-                            >
-                              {event.description}
-                            </Text>
-                          )}
-                        </View>
-
-                        <IconButton
-                          icon="delete"
-                          size={20}
-                          onPress={() => {
-                            Alert.alert(
-                              "Cancel AI Call",
-                              "Are you sure you want to cancel this AI call?",
-                              [
-                                { text: "Cancel", style: "cancel" },
-                                {
-                                  text: "Delete",
-                                  style: "destructive",
-                                  onPress: () => deleteEvent(event.id),
-                                },
-                              ]
-                            );
-                          }}
-                          iconColor={theme.colors.error}
-                        />
-                      </View>
-                    </Card>
-                  ))}
-                </View>
-              )}
-            </Card>
-          </>
-        ) : (
-          /* List View */
-          <Card style={styles.listCard}>
-            <Text variant="titleLarge" style={styles.listTitle}>
-              🤖 All Scheduled AI Calls
+            </View>
+            <Text
+              variant="labelSmall"
+              style={[
+                styles.stepLabel,
+                index === currentStep && styles.stepLabelActive,
+              ]}
+            >
+              {step.title}
             </Text>
+          </View>
+        ))}
+      </View>
 
-            {getUpcomingEvents().length === 0 ? (
-              <View style={styles.noEventsContainer}>
-                <Text variant="bodyLarge" style={styles.noEventsText}>
-                  No AI calls scheduled
-                </Text>
-                <Text variant="bodyMedium" style={styles.noEventsSubtext}>
-                  Your AI assistant is ready to make calls on your behalf
-                </Text>
-                <Button
-                  mode="contained"
-                  onPress={() => setIsModalVisible(true)}
-                  style={styles.scheduleButton}
-                  icon="robot"
+      {/* Form Content */}
+      <KeyboardAvoidingView
+        style={styles.formContainer}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View style={styles.formWrapper}>
+          <Animated.View style={[styles.formSlider, slideStyle]}>
+            {steps.map((_, index) => (
+              <View key={index} style={styles.formStep}>
+                <ScrollView
+                  style={styles.stepContent}
+                  contentContainerStyle={styles.stepContentContainer}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
                 >
-                  Schedule First AI Call
-                </Button>
-              </View>
-            ) : (
-              <View style={styles.eventsList}>
-                {getUpcomingEvents().map((event) => (
-                  <Card key={event.id} style={styles.eventCard}>
-                    <View style={styles.eventContent}>
-                      <View style={styles.eventTime}>
-                        <Text variant="bodyMedium" style={styles.eventDate}>
-                          {dayjs(event.scheduledTime).format("MMM D")}
-                        </Text>
-                        <Text variant="bodyLarge" style={styles.eventTimeText}>
-                          {dayjs(event.scheduledTime).format("h:mm A")}
-                        </Text>
-                      </View>
-
-                      <View style={styles.eventDetails}>
-                        <Text variant="titleMedium" style={styles.eventTitle}>
-                          {event.title}
-                        </Text>
-                        <Text
-                          variant="bodyMedium"
-                          style={styles.eventRecipient}
-                        >
-                          📞 {event.recipient?.phone || "No phone"} •{" "}
-                          {event.recipient?.name || "Unknown"}
-                        </Text>
-                        <Chip
-                          icon="robot"
-                          style={styles.taskTypeChip}
-                          textStyle={styles.taskTypeChipText}
-                        >
-                          {event.taskType || "AI Task"}
-                        </Chip>
-                      </View>
-
-                      <IconButton
-                        icon="delete"
-                        size={20}
-                        onPress={() => deleteEvent(event.id)}
-                        iconColor={theme.colors.error}
-                      />
+                  <Card style={styles.stepCard}>
+                    <View style={styles.stepHeader}>
+                      <Text style={styles.stepEmoji}>{steps[index].icon}</Text>
+                      <Text variant="titleLarge" style={styles.stepTitle}>
+                        {steps[index].title}
+                      </Text>
+                    </View>
+                    <Divider style={styles.stepDivider} />
+                    <View style={styles.stepBody}>
+                      {renderStepContent(index)}
                     </View>
                   </Card>
-                ))}
+                </ScrollView>
               </View>
-            )}
-          </Card>
-        )}
-      </Animated.ScrollView>
+            ))}
+          </Animated.View>
+        </View>
 
-      {/* Schedule AI Call Modal */}
+        {/* Navigation */}
+        <View style={styles.navigation}>
+          <Button
+            mode="outlined"
+            onPress={prevStep}
+            disabled={currentStep === 0}
+            style={[styles.navButton, styles.backButton]}
+            contentStyle={styles.navButtonContent}
+          >
+            ← Back
+          </Button>
+
+          {currentStep < totalSteps - 1 ? (
+            <Button
+              mode="contained"
+              onPress={nextStep}
+              style={[styles.navButton, styles.nextButton]}
+              contentStyle={styles.navButtonContent}
+            >
+              Next →
+            </Button>
+          ) : (
+            <Button
+              mode="contained"
+              onPress={handleSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+              style={[styles.navButton, styles.submitButton]}
+              contentStyle={styles.navButtonContent}
+            >
+              {isSubmitting ? "Scheduling..." : "Schedule Call ✨"}
+            </Button>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+
+      {/* Success Modal */}
       <Portal>
         <Modal
-          visible={isModalVisible}
-          onDismiss={() => {
-            setIsModalVisible(false);
-            resetForm();
-          }}
-          contentContainerStyle={styles.modalContainer}
+          visible={showSuccessModal}
+          onDismiss={handleSuccessModalClose}
+          contentContainerStyle={styles.successModal}
         >
-          <Card style={styles.modalCard}>
-            {/* Progress Bar */}
-            <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${getStepProgress()}%` },
-                  ]}
-                />
-              </View>
-              <Text variant="bodySmall" style={styles.progressText}>
-                Step{" "}
-                {["task", "recipient", "schedule", "review"].indexOf(
-                  modalStep
-                ) + 1}{" "}
-                of 4
+          <View style={styles.successContent}>
+            <Text style={styles.successEmoji}>🎉</Text>
+            <Text variant="headlineSmall" style={styles.successTitle}>
+              Call Scheduled!
+            </Text>
+            <Text variant="bodyLarge" style={styles.successMessage}>
+              Your AI call "{formData.title}" is scheduled for{" "}
+              {dayjs(formData.scheduledDate).format("MMM D, YYYY at h:mm A")}
+            </Text>
+            <View style={styles.successDetails}>
+              <Text variant="bodyMedium" style={styles.successDetail}>
+                🎭 Personality: {formData.voicePersona}
+              </Text>
+              <Text variant="bodyMedium" style={styles.successDetail}>
+                📋 Profile fields: {formData.selectedProfileFields.length}
               </Text>
             </View>
-
-            <ScrollView
-              style={styles.modalScrollView}
-              showsVerticalScrollIndicator={false}
+            <Button
+              mode="contained"
+              onPress={handleSuccessModalClose}
+              style={styles.successButton}
             >
-              {renderModalContent()}
-            </ScrollView>
-
-            <Divider style={styles.modalDivider} />
-
-            <View style={styles.modalActions}>
-              {modalStep !== "task" && (
-                <Button
-                  mode="outlined"
-                  onPress={handlePrevStep}
-                  style={styles.prevButton}
-                >
-                  Previous
-                </Button>
-              )}
-
-              {modalStep === "task" && (
-                <Button
-                  mode="outlined"
-                  onPress={() => {
-                    setIsModalVisible(false);
-                    resetForm();
-                  }}
-                  style={styles.cancelButton}
-                >
-                  Cancel
-                </Button>
-              )}
-
-              {modalStep !== "review" ? (
-                <Button
-                  mode="contained"
-                  onPress={handleNextStep}
-                  disabled={!validateCurrentStep()}
-                  style={styles.nextButton}
-                >
-                  Next
-                </Button>
-              ) : (
-                <Button
-                  mode="contained"
-                  onPress={handleScheduleAICall}
-                  style={styles.scheduleModalButton}
-                  icon="robot"
-                >
-                  Schedule AI Call
-                </Button>
-              )}
-            </View>
-          </Card>
+              Perfect! 🚀
+            </Button>
+          </View>
         </Modal>
       </Portal>
-
-      {/* FAB */}
-      <Animated.View style={[styles.fab, fabStyle]}>
-        <FAB
-          icon="robot"
-          onPress={() => setIsModalVisible(true)}
-          style={[styles.fabButton, { backgroundColor: theme.colors.primary }]}
-          label="AI Call"
-        />
-      </Animated.View>
     </View>
   );
 };
+
+// Review Step Component
+const ReviewStep: React.FC<{
+  formData: CallFormData;
+  profile: UserProfile;
+  missingFields: (keyof UserProfile)[];
+}> = ({ formData, profile, missingFields }) => {
+  const theme = useTheme();
+  const styles = createReviewStyles(theme);
+
+  return (
+    <View style={styles.container}>
+      <Text variant="bodyLarge" style={styles.description}>
+        Review your call settings before scheduling
+      </Text>
+
+      <View style={styles.sections}>
+        {/* Call Details */}
+        <View style={styles.section}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>
+            💬 Call Details
+          </Text>
+          <Text variant="bodyMedium" style={styles.sectionContent}>
+            <Text style={styles.label}>Title: </Text>
+            {formData.title}
+          </Text>
+          {formData.description && (
+            <Text variant="bodyMedium" style={styles.sectionContent}>
+              <Text style={styles.label}>Description: </Text>
+              {formData.description}
+            </Text>
+          )}
+        </View>
+
+        {/* Schedule */}
+        <View style={styles.section}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>
+            📅 Scheduled For
+          </Text>
+          <Text variant="bodyMedium" style={styles.sectionContent}>
+            {dayjs(formData.scheduledDate).format("dddd, MMMM D, YYYY")}
+          </Text>
+          <Text variant="bodyMedium" style={styles.sectionContent}>
+            {dayjs(formData.scheduledDate).format("h:mm A")}
+          </Text>
+        </View>
+
+        {/* AI Personality */}
+        <View style={styles.section}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>
+            🎭 AI Personality
+          </Text>
+          <Text variant="bodyMedium" style={styles.sectionContent}>
+            {formData.voicePersona.charAt(0).toUpperCase() +
+              formData.voicePersona.slice(1)}
+          </Text>
+        </View>
+
+        {/* Profile Info */}
+        <View style={styles.section}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>
+            👤 Profile Information
+          </Text>
+          {formData.selectedProfileFields.map((field) => (
+            <Text
+              key={field}
+              variant="bodyMedium"
+              style={styles.sectionContent}
+            >
+              • {field}:{" "}
+              {(() => {
+                const value =
+                  profile[field] ||
+                  formData.additionalData[
+                    field as keyof typeof formData.additionalData
+                  ];
+                if (typeof value === "string") return value;
+                if (value instanceof Date) return value.toLocaleString();
+                if (typeof value === "object" && value !== null)
+                  return JSON.stringify(value);
+                return value ?? "Provided";
+              })()}
+            </Text>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+};
+
+const createReviewStyles = (theme: any) =>
+  StyleSheet.create({
+    container: {
+      gap: 20,
+    },
+    description: {
+      color: theme.colors.onSurfaceVariant,
+      textAlign: "center",
+      marginBottom: 8,
+    },
+    sections: {
+      gap: 16,
+    },
+    section: {
+      backgroundColor: theme.colors.surfaceVariant,
+      padding: 16,
+      borderRadius: 12,
+      gap: 8,
+    },
+    sectionTitle: {
+      color: theme.colors.onSurface,
+      fontWeight: "600",
+    },
+    sectionContent: {
+      color: theme.colors.onSurfaceVariant,
+    },
+    label: {
+      fontWeight: "500",
+      color: theme.colors.onSurface,
+    },
+  });
 
 const createStyles = (theme: any) =>
   StyleSheet.create({
@@ -1032,331 +712,223 @@ const createStyles = (theme: any) =>
       flex: 1,
     },
     header: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
       paddingHorizontal: 20,
       paddingTop: 60,
-      paddingBottom: 16,
+      paddingBottom: 20,
+      backgroundColor: theme.colors.surface,
+      elevation: 2,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+    },
+    headerTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 8,
+    },
+    closeButton: {
+      margin: 0,
+    },
+    headerSpacer: {
+      width: 48,
     },
     headerTitle: {
       color: theme.colors.onSurface,
       fontWeight: "700",
+      textAlign: "center",
     },
     headerSubtitle: {
       color: theme.colors.onSurfaceVariant,
-      marginTop: 4,
-    },
-    scrollView: {
-      flex: 1,
-      paddingHorizontal: 16,
-    },
-    calendarCard: {
-      marginBottom: 16,
-      padding: 16,
-    },
-    eventsCard: {
-      marginBottom: 16,
-      padding: 20,
-    },
-    eventsTitle: {
-      color: theme.colors.onSurface,
-      fontWeight: "600",
-      marginBottom: 16,
-    },
-    listCard: {
-      marginBottom: 16,
-      padding: 20,
-    },
-    listTitle: {
-      color: theme.colors.onSurface,
-      fontWeight: "600",
-      marginBottom: 16,
-    },
-    noEventsContainer: {
-      alignItems: "center",
-      paddingVertical: 32,
-    },
-    noEventsText: {
-      color: theme.colors.onSurfaceVariant,
-      marginBottom: 8,
       textAlign: "center",
-    },
-    noEventsSubtext: {
-      color: theme.colors.onSurfaceVariant,
       marginBottom: 16,
-      textAlign: "center",
-      fontSize: 14,
-    },
-    scheduleButton: {
-      marginTop: 8,
-    },
-    eventsList: {
-      gap: 12,
-    },
-    eventCard: {
-      padding: 16,
-    },
-    eventContent: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    eventStatus: {
-      alignItems: "center",
-      marginRight: 16,
-      minWidth: 70,
-    },
-    eventTime: {
-      alignItems: "center",
-      marginRight: 16,
-      minWidth: 70,
-    },
-    eventDate: {
-      color: theme.colors.onSurfaceVariant,
-      fontSize: 12,
-      marginBottom: 4,
-    },
-    eventTimeText: {
-      color: theme.colors.primary,
-      fontWeight: "600",
-    },
-    eventDetails: {
-      flex: 1,
-    },
-    eventTitle: {
-      color: theme.colors.onSurface,
-      fontWeight: "600",
-      marginBottom: 4,
-    },
-    eventRecipient: {
-      color: theme.colors.onSurfaceVariant,
-      marginBottom: 4,
-    },
-    eventDescription: {
-      color: theme.colors.onSurfaceVariant,
-      marginTop: 4,
-    },
-    statusChip: {
-      alignSelf: "flex-start",
-      height: 24,
-      marginTop: 4,
-    },
-    statusChipText: {
-      fontSize: 12,
-    },
-    taskTypeChip: {
-      alignSelf: "flex-start",
-      height: 24,
-      marginTop: 4,
-    },
-    taskTypeChipText: {
-      fontSize: 12,
-    },
-    fab: {
-      position: "absolute",
-      bottom: 24,
-      right: 24,
-    },
-    fabButton: {
-      elevation: 8,
-    },
-    modalContainer: {
-      margin: 20,
-      maxHeight: "90%",
-    },
-    modalCard: {
-      padding: 24,
-      flex: 1,
     },
     progressContainer: {
-      marginBottom: 20,
+      gap: 8,
     },
-    progressBar: {
+    progressBackground: {
       height: 4,
       backgroundColor: theme.colors.surfaceVariant,
       borderRadius: 2,
       overflow: "hidden",
-      marginBottom: 8,
     },
     progressFill: {
       height: "100%",
       backgroundColor: theme.colors.primary,
+      borderRadius: 2,
     },
     progressText: {
       color: theme.colors.onSurfaceVariant,
       textAlign: "center",
     },
-    modalScrollView: {
+    stepIndicators: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      backgroundColor: theme.colors.surface,
+    },
+    stepIndicator: {
+      alignItems: "center",
+      flex: 1,
+      gap: 8,
+    },
+    stepCircle: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: theme.colors.surfaceVariant,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 2,
+      borderColor: theme.colors.outline,
+    },
+    stepCircleActive: {
+      backgroundColor: theme.colors.primaryContainer,
+      borderColor: theme.colors.primary,
+    },
+    stepCircleCompleted: {
+      backgroundColor: theme.colors.primary,
+      borderColor: theme.colors.primary,
+    },
+    stepIcon: {
+      fontSize: 16,
+      color: theme.colors.onSurfaceVariant,
+    },
+    stepIconActive: {
+      fontSize: 18,
+      color: theme.colors.primary,
+    },
+    stepIconCompleted: {
+      fontSize: 16,
+      color: theme.colors.onPrimary,
+      fontWeight: "bold",
+    },
+    stepLabel: {
+      color: theme.colors.onSurfaceVariant,
+      textAlign: "center",
+      fontSize: 10,
+    },
+    stepLabelActive: {
+      color: theme.colors.primary,
+      fontWeight: "500",
+    },
+    formContainer: {
       flex: 1,
     },
+    formWrapper: {
+      flex: 1,
+      overflow: "hidden",
+    },
+    formSlider: {
+      flex: 1,
+      flexDirection: "row",
+      width: width * 5,
+    },
+    formStep: {
+      width: width,
+    },
     stepContent: {
+      flex: 1,
+      paddingHorizontal: 16,
+    },
+    stepContentContainer: {
       paddingBottom: 20,
+    },
+    stepCard: {
+      marginVertical: 16,
+      elevation: 3,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+    },
+    stepHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: 20,
+      paddingBottom: 16,
+      gap: 12,
+    },
+    stepEmoji: {
+      fontSize: 24,
     },
     stepTitle: {
       color: theme.colors.onSurface,
-      fontWeight: "700",
-      marginBottom: 8,
-    },
-    stepSubtitle: {
-      color: theme.colors.onSurfaceVariant,
-      marginBottom: 24,
-    },
-    input: {
-      backgroundColor: "transparent",
-      marginBottom: 16,
-    },
-    phoneNumberSection: {
-      marginBottom: 20,
-      padding: 16,
-      backgroundColor: theme.colors.primaryContainer,
-      borderRadius: 12,
-    },
-    phoneNumberLabel: {
-      color: theme.colors.onPrimaryContainer,
       fontWeight: "600",
-      marginBottom: 12,
     },
-    phoneNumberInput: {
+    stepDivider: {
+      marginHorizontal: 20,
+    },
+    stepBody: {
+      padding: 20,
+    },
+    conditionalSection: {
+      marginTop: 16,
+    },
+    navigation: {
+      flexDirection: "row",
+      padding: 20,
+      paddingTop: 16,
       backgroundColor: theme.colors.surface,
-      marginBottom: 8,
-    },
-    phoneHint: {
-      color: theme.colors.onPrimaryContainer,
-      textAlign: "center",
-      fontStyle: "italic",
-    },
-    quickContactsSection: {
-      padding: 16,
-      backgroundColor: theme.colors.surfaceVariant,
-      borderRadius: 8,
-      marginTop: 8,
-    },
-    quickContactsTitle: {
-      color: theme.colors.onSurfaceVariant,
-      textAlign: "center",
-      fontStyle: "italic",
-    },
-    sectionLabel: {
-      color: theme.colors.onSurface,
-      fontWeight: "600",
-      marginTop: 8,
-      marginBottom: 12,
-    },
-    taskTypeGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-      marginBottom: 20,
-    },
-    taskTypeChip: {
-      marginBottom: 8,
-    },
-    radioOption: {
-      flexDirection: "row",
-      alignItems: "center",
-      marginBottom: 8,
-    },
-    radioLabel: {
-      marginLeft: 8,
-      flex: 1,
-    },
-    selectedDateText: {
-      color: theme.colors.primary,
-      fontWeight: "600",
-      marginBottom: 20,
-      textAlign: "center",
-    },
-    timeSlotsContainer: {
-      marginBottom: 20,
-    },
-    timeSlot: {
-      marginRight: 8,
-    },
-    durationOptions: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-      marginBottom: 20,
-    },
-    durationChip: {
-      marginBottom: 8,
-    },
-    callSettings: {
-      gap: 16,
-    },
-    settingRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    retryOptions: {
-      flexDirection: "row",
-      gap: 8,
-    },
-    retryChip: {
-      minWidth: 40,
-    },
-    reviewCard: {
-      padding: 16,
-      marginBottom: 20,
-      backgroundColor: theme.colors.surfaceVariant,
-    },
-    reviewSectionTitle: {
-      color: theme.colors.onSurface,
-      fontWeight: "600",
-      marginBottom: 12,
-    },
-    reviewText: {
-      color: theme.colors.onSurface,
-      marginBottom: 8,
-    },
-    reviewLabel: {
-      fontWeight: "600",
-    },
-    privacyTitle: {
-      color: theme.colors.onSurface,
-      fontWeight: "600",
-      marginBottom: 8,
-    },
-    privacySubtitle: {
-      color: theme.colors.onSurfaceVariant,
-      marginBottom: 16,
-    },
-    privacySettings: {
-      gap: 16,
-      marginBottom: 20,
-    },
-    privacyRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    privacyInfo: {
-      flex: 1,
-      marginRight: 16,
-    },
-    privacyDetail: {
-      color: theme.colors.onSurfaceVariant,
-      marginTop: 4,
-    },
-    modalDivider: {
-      marginVertical: 16,
-    },
-    modalActions: {
-      flexDirection: "row",
+      elevation: 8,
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
       gap: 12,
     },
-    prevButton: {
+    navButton: {
       flex: 1,
     },
-    cancelButton: {
-      flex: 1,
+    navButtonContent: {
+      paddingVertical: 8,
+    },
+    backButton: {
+      maxWidth: 100,
     },
     nextButton: {
-      flex: 2,
+      minWidth: 120,
     },
-    scheduleModalButton: {
-      flex: 2,
+    submitButton: {
+      minWidth: 140,
+    },
+    successModal: {
+      margin: 20,
+      backgroundColor: theme.colors.surface,
+      borderRadius: 20,
+      overflow: "hidden",
+    },
+    successContent: {
+      padding: 32,
+      alignItems: "center",
+      gap: 16,
+    },
+    successEmoji: {
+      fontSize: 48,
+    },
+    successTitle: {
+      color: theme.colors.onSurface,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    successMessage: {
+      color: theme.colors.onSurfaceVariant,
+      textAlign: "center",
+      lineHeight: 24,
+    },
+    successDetails: {
+      gap: 8,
+      alignItems: "center",
+    },
+    successDetail: {
+      color: theme.colors.onSurfaceVariant,
+      backgroundColor: theme.colors.surfaceVariant,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+    },
+    successButton: {
+      marginTop: 8,
+      minWidth: 140,
     },
   });
 

@@ -34,6 +34,10 @@ export interface CallEvent {
   documents?: AttachedDocument[];
   priority?: "low" | "medium" | "high";
   recurringPattern?: RecurringPattern;
+  voicePersona?: VoicePersona;
+  scheduledDate?: Date; // For scheduling purposes
+  selectedProfileFields?: (keyof UserProfile)[];
+  additionalProfileData?: any; // Flexible for additional user data
 }
 
 export interface CallMessage {

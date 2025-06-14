@@ -473,64 +473,6 @@ const ExpoProfileScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Enhanced Voice Persona Section */}
-        <Card style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text variant="titleLarge" style={styles.sectionTitle}>
-              AI Voice Persona
-            </Text>
-            <Text variant="bodyMedium" style={styles.sectionDescription}>
-              Choose how your AI assistant communicates with you
-            </Text>
-          </View>
-
-          <View style={styles.personaGrid}>
-            {voicePersonas.map((persona) => (
-              <TouchableOpacity
-                key={persona.key}
-                style={[
-                  styles.personaCard,
-                  formData.voicePersona === persona.key &&
-                    styles.selectedPersonaCard,
-                  {
-                    borderColor:
-                      formData.voicePersona === persona.key
-                        ? persona.color
-                        : theme.colors.outline,
-                  },
-                ]}
-                onPress={() => handlePersonaSelect(persona.key as VoicePersona)}
-                disabled={!isEditing && !!profile}
-              >
-                <View
-                  style={[
-                    styles.personaIcon,
-                    { backgroundColor: `${persona.color}20` },
-                  ]}
-                >
-                  <Text style={styles.personaEmoji}>{persona.emoji}</Text>
-                </View>
-                <Text variant="titleMedium" style={styles.personaLabel}>
-                  {persona.label}
-                </Text>
-                <Text variant="bodySmall" style={styles.personaDescription}>
-                  {persona.description}
-                </Text>
-                {formData.voicePersona === persona.key && (
-                  <View
-                    style={[
-                      styles.selectedIndicator,
-                      { backgroundColor: persona.color },
-                    ]}
-                  >
-                    <IconButton icon="check" size={16} iconColor="white" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Card>
-
         {/* Settings Section */}
         <Card style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
