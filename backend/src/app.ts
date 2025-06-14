@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { get_audio, play_audio } from './11labs';
+import { get_audio, play_audio, streamToBuffer } from './11labs';
 import { Readable } from 'stream';
 import { chatWithSession } from './chatgpt';
 
@@ -16,14 +16,7 @@ app.use(express.static('public')); // To serve static files like HTML
 app.use(express.json());
 
 
-async function streamToBuffer(stream: Readable): Promise<Buffer> {
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of stream) {
-      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-    }
-    return Buffer.concat(chunks);
-  }
-  
+
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
