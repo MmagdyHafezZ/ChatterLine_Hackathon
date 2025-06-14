@@ -7,6 +7,8 @@ import { chatWithSession } from './chatgpt';
 
 import prisma from './prisma';
 
+import callClient from './call';
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -26,6 +28,11 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
   
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.post('/twiml', (req: Request, res: Response) => {
+  res.set('Content-Type', 'text/xml');
+  res.sendFile(path.join(__dirname, 'public', 'twiml.xml'));
 });
 
 
@@ -60,6 +67,20 @@ app.get('/play-audio', async (req: Request, res: Response) => {
         res.status(500).send("Failed to play audio");
     }
 });
+
+app.post('/call', async (req: Request, res: Response) => {
+  callClient.calls
+  .create({
+    // url: 'https://712d-138-51-79-134.ngrok-free.app/twiml',
+    to: '+18255616645',
+    from: '+18259069630',
+    twiml: '<Response><Say>Welcome to the call! This is a test message. Fuck you Youssef</Say></Response>'
+  })
+  .then(call => console.log(`Call initiated: ${call.sid}`))
+  .catch(err => console.error(err));
+  
+  res.status(200).send("Call endpoint is not implemented yet");
+})
 
 app.post('/chat-gpt', async (req, res) => {
     const { prompt } = req.body;
