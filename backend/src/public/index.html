@@ -2,14 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Audio Fetch & Play</title>
+  <title>Audio Fetch & Play + ChatGPT</title>
 </head>
 <body>
   <h2>🎧 Multilingual Audio Demo</h2>
+
+  <!-- Audio Buttons -->
   <button onclick="fetchAudio()">Fetch Audio</button>
   <button onclick="playAudio()">Play Audio</button>
 
   <audio id="audioPlayer" controls style="display:none;"></audio>
+
+  <hr>
+
+  <!-- ChatGPT Prompt Input -->
+  <h2>🤖 Chat with GPT</h2>
+  <input type="text" id="gptPrompt" placeholder="Ask something..." style="width: 300px;">
+  <button onclick="chatWithGPT()">Chat with GPT</button>
+
+  <p id="gptResponse" style="white-space: pre-wrap; max-width: 600px;"></p>
 
   <script>
     async function fetchAudio() {
@@ -22,6 +33,25 @@
       audioPlayer.src = '/play-audio';
       audioPlayer.style.display = 'block';
       audioPlayer.play();
+    }
+
+    async function chatWithGPT() {
+      const prompt = document.getElementById('gptPrompt').value;
+      const responseContainer = document.getElementById('gptResponse');
+      responseContainer.textContent = 'Thinking...';
+
+      try {
+        const res = await fetch('/chat-gpt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+
+        const data = await res.json();
+        responseContainer.textContent = data.response || 'No response';
+      } catch (err) {
+        responseContainer.textContent = 'Error: ' + err.message;
+      }
     }
   </script>
 </body>
