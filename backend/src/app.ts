@@ -5,6 +5,8 @@ import { get_audio, play_audio } from './11labs';
 import { Readable } from 'stream';
 
 
+import prisma from './prisma';
+
 const app = express();
 const port = process.env.PORT || 3000;
 
