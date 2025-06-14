@@ -23,7 +23,7 @@ import { enhancedDarkTheme, enhancedLightTheme } from "./src/utils/theme";
 import ParticleBackground from "./src/components/animations/ParticleBackground";
 import CustomTabBar from "./src/components/navigation/CustomTabBar";
 import SplashScreenComponent from "./src/components/common/SplashScreen";
-import ScheduleMainScreen from "./src/screens/SchedulerMainScreen";
+import SchedulerMainScreen from "./src/screens/SchedulerMainScreen";
 
 // Keep splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -142,7 +142,7 @@ const App: React.FC = () => {
             />
             <Tab.Screen
               name="Scheduler"
-              component={ScheduleMainScreen}
+              component={SchedulerMainScreen}
               options={{
                 tabBarIcon: "calendar-clock",
                 tabBarLabel: "Schedule",

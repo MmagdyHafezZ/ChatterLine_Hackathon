@@ -33,8 +33,7 @@ export const CompletionStep = ({ userData, onComplete, onPrevious }: CompletionS
   const userInfo: UserProfile = {
     phone: userData.phone,
     email: userData.email,
-    firstName: userData.firstName,
-    lastName: userData.lastName,
+    name: userData.firstName + " " + userData.lastName,
     interests: userData.interests,
   }
 
