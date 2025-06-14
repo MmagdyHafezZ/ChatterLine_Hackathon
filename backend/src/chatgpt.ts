@@ -20,28 +20,29 @@ function getOrCreateSession(sessionId: string): Message[] {
   return sessions[sessionId];
 }
 
-export async function chatWithSession(sessionId: string, userMessage: string): Promise<string> {
+export async function chatWithSession(sessionId: string, userMessage: string): Promise<{ message: string; end: boolean }> {
   const messages = getOrCreateSession(sessionId);
-  messages.push({ role: 'user', content: userMessage });
+  messages.push({ role: "user", content: userMessage });
+
+  // Tell the assistant to include an END_CONVO marker if the conversation should end
+  messages.push({
+    role: "system",
+    content: `If John confirms the appointment or says goodbye, include "[END_CONVO]" at the end of your reply. Otherwise, do not include it.`,
+  });
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: "gpt-4o-mini",
     messages,
   });
 
-  const assistantMessage = completion.choices[0].message.content ?? '';
-  messages.push({ role: 'assistant', content: assistantMessage });
+  const assistantMessage = completion.choices[0].message.content ?? "";
+  messages.push({ role: "assistant", content: assistantMessage });
 
-  // Optional: Add a follow-up user/system message to guide the next turn
-  messages.push({ role: 'user', content: 'Can you confirm if there are any available time slots next week?' });
+  const end = assistantMessage.includes("[END_CONVO]");
+  const cleanMessage = assistantMessage.replace("[END_CONVO]", "").trim();
 
-  const followUpCompletion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages,
-  });
-
-  const followUpMessage = followUpCompletion.choices[0].message.content ?? '';
-  messages.push({ role: 'assistant', content: followUpMessage });
-
-  return `${assistantMessage}\n\n${followUpMessage}`;
+  return {
+    message: cleanMessage,
+    end,
+  };
 }

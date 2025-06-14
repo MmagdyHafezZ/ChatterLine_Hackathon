@@ -36,8 +36,9 @@ app.post("/twiml", (req: Request, res: Response) => {
     <Response>
       <Gather input="speech" action="/handle-speech" method="POST">
         <Say>
-          Hi, this is John Smith. I'm calling because I'd like to book an appointment with Doctor Patel sometime next week. 
-          I’ve been feeling under the weather and would really appreciate a check-up. Can you help me with that?
+          Hey there, John Smith here—yes, *the* John Smith. 
+          I’ve been battling what I can only describe as a dramatic episode of the sniffles, and I’d love to book an appointment with Doctor Patel sometime next week. 
+          Can you help a guy out?
         </Say>
       </Gather>
       <Say>Sorry, I didn’t catch that. Please try again later. Goodbye!</Say>
@@ -99,8 +100,8 @@ app.post("/handle-speech", async (req: Request, res: Response) => {
 
   let reply = "Sorry, I couldn't understand that.";
 
-  if (userInput) {
-const roleplayPrompt = `
+  if (userInput && userInput.trim().length > 2) {
+    const roleplayPrompt = `
 You are playing the role of **John Smith**, a patient trying to book a doctor's appointment over the phone.
 
 - You work 9 to 5 on weekdays, so you prefer appointments on the **weekend**.
@@ -108,25 +109,55 @@ You are playing the role of **John Smith**, a patient trying to book a doctor's 
 - Respond **only as John**. Do not include the assistant's lines.
 - Your reply should be **one short sentence**, polite and natural.
 - Do not include multiple options or inner thoughts — **only say one thing**.
+- If this sounds like a final confirmation or you're happy with the appointment, add "[END_CONVO]" to your reply.
 
 Now reply only as John:
 `;
 
-
     const chatResp = await chatWithSession("1", roleplayPrompt);
-    reply = chatResp || reply;
+    reply = chatResp?.message || reply;
+
+    const isEnd = /\[END_CONVO\]/i.test(reply);
+    const cleanedReply = reply.replace(/\[END_CONVO\]/i, "").trim();
+
+    if (isEnd) {
+      console.log("Conversation ending...");
+      res.set("Content-Type", "text/xml");
+      res.send(`
+        <Response>
+          <Say>${cleanedReply}</Say>
+          <Say>Thank you and goodbye!</Say>
+          <Hangup/>
+        </Response>
+      `);
+      return;
+    }
+
+    // If not ending the conversation, just continue
+    res.set("Content-Type", "text/xml");
+    res.send(`
+      <Response>
+        <Say>${cleanedReply}</Say>
+        <Gather input="speech" action="/handle-speech" method="POST">
+          <Say></Say>
+        </Gather>
+        <Say>We didn't hear anything. Goodbye!</Say>
+        <Hangup/>
+      </Response>
+    `);
+    return;
   }
 
-  console.log(`Replying with: ${reply}`);
-
+  // If no valid input at all
   res.set("Content-Type", "text/xml");
   res.send(`
     <Response>
-      <Say>${reply}</Say>
-      <Redirect method="POST">/twiml</Redirect>
+      <Say>Sorry, I didn't catch that. Let's try again later. Goodbye!</Say>
+      <Hangup/>
     </Response>
   `);
 });
+
 
 app.post("/chat-gpt", async (req, res) => {
   const { prompt } = req.body;
