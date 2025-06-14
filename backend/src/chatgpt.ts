@@ -20,7 +20,6 @@ function getOrCreateSession(sessionId: string): Message[] {
   return sessions[sessionId];
 }
 
-// Non-streaming chat
 export async function chatWithSession(sessionId: string, userMessage: string): Promise<string> {
   const messages = getOrCreateSession(sessionId);
   messages.push({ role: 'user', content: userMessage });
@@ -33,5 +32,16 @@ export async function chatWithSession(sessionId: string, userMessage: string): P
   const assistantMessage = completion.choices[0].message.content ?? '';
   messages.push({ role: 'assistant', content: assistantMessage });
 
-  return assistantMessage;
+  // Optional: Add a follow-up user/system message to guide the next turn
+  messages.push({ role: 'user', content: 'Can you confirm if there are any available time slots next week?' });
+
+  const followUpCompletion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages,
+  });
+
+  const followUpMessage = followUpCompletion.choices[0].message.content ?? '';
+  messages.push({ role: 'assistant', content: followUpMessage });
+
+  return `${assistantMessage}\n\n${followUpMessage}`;
 }
