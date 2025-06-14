@@ -113,9 +113,9 @@ const App: React.FC = () => {
     return <SplashScreenComponent />;
   }
 
-  if (isOnboarding) {
-    return <OnboardingFlow onComplete={onComplete} />;
-  }
+  // if (isOnboarding) {
+  //   return <OnboardingFlow onComplete={onComplete} />;
+  // }
 
   return (
     <PaperProvider theme={theme}>
