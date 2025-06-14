@@ -15,6 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import ProfileScreen from "./src/screens/ProfileScreen";
+import { OnboardingFlow } from "./src/components/Onboarding/OnboardingFlow";
 import SchedulerScreen from "./src/screens/SchedulerScreen";
 import ExpoCallScreen from "./src/screens/ExpoCallScreen";
 import { useThemeStore } from "./src/store/userStore";
@@ -42,6 +43,7 @@ const App: React.FC = () => {
   const { isDarkMode, setDarkMode } = useThemeStore();
 
   const [appIsReady, setAppIsReady] = React.useState(false);
+  const [isOnboarding, setIsOnboarding] = React.useState(true);
   const splashOpacity = useSharedValue(1);
 
   useEffect(() => {
@@ -102,8 +104,16 @@ const App: React.FC = () => {
 
   const theme = isDarkMode ? enhancedDarkTheme : enhancedLightTheme;
 
+  const onComplete = () => {
+    setIsOnboarding(false)
+  }
+
   if (!appIsReady) {
     return <SplashScreenComponent />;
+  }
+
+  if (isOnboarding) {
+    return <OnboardingFlow onComplete={onComplete} />;
   }
 
   return (
@@ -167,6 +177,7 @@ const App: React.FC = () => {
         </Animated.View>
       </Animated.View>
     </PaperProvider>
+
   );
 };
 

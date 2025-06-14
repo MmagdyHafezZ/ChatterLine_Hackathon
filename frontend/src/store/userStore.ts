@@ -17,6 +17,7 @@ type UserPersistedState = {
   };
 };
 
+
 const storage: PersistStorage<UserPersistedState> = {
   getItem: async (name) => {
     const value = await AsyncStorage.getItem(name);
@@ -34,7 +35,6 @@ const storage: PersistStorage<UserPersistedState> = {
     await AsyncStorage.removeItem(name);
   },
 };
-
 interface UserState {
   profile: UserProfile | null;
   metrics: CallMetrics;

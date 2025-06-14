@@ -1,20 +1,22 @@
 export interface UserProfile {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
+  id?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
   company?: string;
   jobTitle?: string;
   location?: string;
   bio?: string;
-  voicePersona: VoicePersona;
-  createdAt: Date;
-  updatedAt: Date;
+  voicePersona?: VoicePersona;
+  createdAt?: Date;
+  updatedAt?: Date;
   avatar?: string;
   timezone?: string;
+  interests?: string[],
   workingHours?: {
-    start: number;
-    end: number;
+    start?: number;
+    end?: number;
   };
 }
 
