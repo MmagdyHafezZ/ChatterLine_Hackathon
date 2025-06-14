@@ -15,7 +15,9 @@ const port = process.env.PORT || 3000;
 let cachedAudio: Buffer | null = null;
 
 app.use(express.static('public')); // To serve static files like HTML
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
 
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -32,9 +34,15 @@ app.get('/', (req: Request, res: Response) => {
 
 app.post('/twiml', (req: Request, res: Response) => {
   res.set('Content-Type', 'text/xml');
-  res.sendFile(path.join(__dirname, 'public', 'twiml.xml'));
+  res.send(`
+    <Response>
+      <Gather input="speech" action="/handle-speech" method="POST">
+        <Say>Hi! What would you like to talk about?</Say>
+      </Gather>
+      <Say>We didn't hear anything. Goodbye!</Say>
+    </Response>
+  `);
 });
-
 
 app.get('/get-audio', async (req: Request, res: Response) => {
     try {
@@ -69,18 +77,40 @@ app.get('/play-audio', async (req: Request, res: Response) => {
 });
 
 app.post('/call', async (req: Request, res: Response) => {
-  callClient.calls
-  .create({
-    // url: 'https://712d-138-51-79-134.ngrok-free.app/twiml',
-    to: '+18255616645',
-    from: '+18259069630',
-    twiml: '<Response><Say>Welcome to the call! This is a test message. Fuck you Youssef</Say></Response>'
-  })
-  .then(call => console.log(`Call initiated: ${call.sid}`))
-  .catch(err => console.error(err));
-  
-  res.status(200).send("Call endpoint is not implemented yet");
-})
+  try {
+    const call = await callClient.calls.create({
+    url: 'https://712d-138-51-79-134.ngrok-free.app/twiml', 
+      to: '+18255616645',
+      from: '+18259069630'
+    });
+    console.log(`Call initiated: ${call.sid}`);
+    res.status(200).send("Call started");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Call failed");
+  }
+});
+
+// Handle speech and reply using ChatGPT
+app.post('/handle-speech', async (req: Request, res: Response) => {
+  const userInput = req.body.SpeechResult;
+  console.log(`User said: ${userInput}`);
+
+  let reply = "Sorry, I couldn't understand that.";
+  if (userInput) {
+    const chatResp = await chatWithSession('1', userInput);
+    reply = chatResp || reply;
+  }
+
+  res.set('Content-Type', 'text/xml');
+  res.send(`
+    <Response>
+      <Say>${reply}</Say>
+      <Redirect method="POST">/twiml</Redirect>
+    </Response>
+  `);
+});
+
 
 app.post('/chat-gpt', async (req, res) => {
     const { prompt } = req.body;
