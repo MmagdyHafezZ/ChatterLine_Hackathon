@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Audio Fetch & Play</title>
+</head>
+<body>
+  <h2>🎧 Multilingual Audio Demo</h2>
+  <button onclick="fetchAudio()">Fetch Audio</button>
+  <button onclick="playAudio()">Play Audio</button>
+
+  <audio id="audioPlayer" controls style="display:none;"></audio>
+
+  <script>
+    async function fetchAudio() {
+      const res = await fetch('/get-audio');
+      alert(await res.text());
+    }
+
+    function playAudio() {
+      const audioPlayer = document.getElementById('audioPlayer');
+      audioPlayer.src = '/play-audio';
+      audioPlayer.style.display = 'block';
+      audioPlayer.play();
+    }
+  </script>
+</body>
+</html>

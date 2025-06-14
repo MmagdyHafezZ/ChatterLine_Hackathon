@@ -1,6 +1,13 @@
+// store/callStore.ts - Enhanced with form data support
 import { create } from "zustand";
 import { persist, devtools } from "zustand/middleware";
-import { CallEvent, CallSession, CallMessage } from "../types";
+import {
+  CallEvent,
+  CallSession,
+  CallMessage,
+  VoicePersona,
+  UserProfile,
+} from "../types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type {
@@ -38,13 +45,29 @@ const storage: PersistStorage<{
   },
 };
 
+// Enhanced form data interface
+export interface CallFormData {
+  title: string;
+  description: string;
+  scheduledDate: Date;
+  voicePersona: VoicePersona;
+  selectedProfileFields: (keyof UserProfile)[];
+  additionalData: {
+    name?: string;
+    phone?: string;
+    company?: string;
+    jobTitle?: string;
+  };
+}
+
 interface CallState {
   events: CallEvent[];
   sessions: CallSession[];
   currentSession: CallSession | null;
 
-  // Event management
+  // Event management with enhanced data
   addEvent: (event: Omit<CallEvent, "id" | "createdAt" | "updatedAt">) => void;
+  addEventFromForm: (formData: CallFormData) => CallEvent;
   updateEvent: (id: string, updates: Partial<CallEvent>) => void;
   deleteEvent: (id: string) => void;
   getEvent: (id: string) => CallEvent | undefined;
@@ -61,6 +84,7 @@ interface CallState {
   getCompletedSessions: () => CallSession[];
   getTodaysEvents: () => CallEvent[];
   getEventsByStatus: (status: CallEvent["status"]) => CallEvent[];
+  getEventsByPersona: (persona: VoicePersona) => CallEvent[];
 }
 
 export const useCallStore = create<CallState>()(
@@ -84,6 +108,33 @@ export const useCallStore = create<CallState>()(
             false,
             "addEvent"
           );
+        },
+
+        addEventFromForm: (formData: CallFormData) => {
+          const event: CallEvent = {
+            id: `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            title: formData.title,
+            description: formData.description,
+            scheduledTime: formData.scheduledDate,
+            duration: 30, // Default duration
+            status: "scheduled",
+            participants: [],
+            reminders: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            // Enhanced fields
+            voicePersona: formData.voicePersona,
+            selectedProfileFields: formData.selectedProfileFields,
+            additionalProfileData: formData.additionalData,
+          };
+
+          set(
+            (state) => ({ events: [...state.events, event] }),
+            false,
+            "addEventFromForm"
+          );
+
+          return event;
         },
 
         updateEvent: (id, updates) =>
@@ -230,6 +281,10 @@ export const useCallStore = create<CallState>()(
 
         getEventsByStatus: (status) => {
           return get().events.filter((event) => event.status === status);
+        },
+
+        getEventsByPersona: (persona) => {
+          return get().events.filter((event) => event.voicePersona === persona);
         },
       }),
       {
