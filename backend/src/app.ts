@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { get_audio, play_audio } from './11labs';
 import { Readable } from 'stream';
-
+import { chatWithSession } from './chatgpt';
 
 import prisma from './prisma';
 
@@ -13,6 +13,7 @@ const port = process.env.PORT || 3000;
 let cachedAudio: Buffer | null = null;
 
 app.use(express.static('public')); // To serve static files like HTML
+app.use(express.json());
 
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -59,6 +60,14 @@ app.get('/play-audio', async (req: Request, res: Response) => {
         res.status(500).send("Failed to play audio");
     }
 });
+
+app.post('/chat-gpt', async (req, res) => {
+    const { prompt } = req.body;
+    const response = await chatWithSession('1', prompt); // use your session chat logic
+    res.json({ response });
+  });
+  
+
 
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
