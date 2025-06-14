@@ -11,18 +11,18 @@ type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 const sessions: Record<string, Message[]> = {};
 
 // Helper: Get or create session
-function getOrCreateSession(sessionId: string): Message[] {
+function getOrCreateSession(sessionId: string, userdata: string): Message[] {
   if (!sessions[sessionId]) {
     sessions[sessionId] = [
-      { role: 'system', content: 'You are a helpful assistant.' },
+      { role: 'system', content: 'You are a now connected to a call, to make an appoiment on belalf of the user, here are the details ' + userdata},
     ];
   }
   return sessions[sessionId];
 }
 
 // Non-streaming chat
-export async function chatWithSession(sessionId: string, userMessage: string): Promise<string> {
-  const messages = getOrCreateSession(sessionId);
+export async function chatWithSession(sessionId: string, userMessage: string, appoimentdata: string): Promise<string> {
+  const messages = getOrCreateSession(sessionId, appoimentdata);
   messages.push({ role: 'user', content: userMessage });
 
   const completion = await openai.chat.completions.create({

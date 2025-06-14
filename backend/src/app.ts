@@ -63,7 +63,7 @@ app.get('/play-audio', async (req: Request, res: Response) => {
 
 app.post('/chat-gpt', async (req, res) => {
     const { prompt } = req.body;
-    const response = await chatWithSession('1', prompt); // use your session chat logic
+    const response = await chatWithSession('1', prompt, "name: youssef, appoiment: doctor, time: 11 am"); // use your session chat logic
     res.json({ response });
   });
   
