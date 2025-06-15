@@ -1,2 +1,5 @@
 myvenv
 backend/.env
+
+vapi-backend/.env
+vapi-backend/node_modules
